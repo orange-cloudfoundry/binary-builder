@@ -3,7 +3,7 @@ require_relative 'base'
 
 class AprRecipe < BaseRecipe
   def url
-    "http://apache.mirrors.tds.net/apr/apr-#{version}.tar.gz"
+    "https://apache.osuosl.org/apr/apr-#{version}.tar.gz"
   end
 end
 
@@ -15,7 +15,7 @@ class AprIconvRecipe < BaseRecipe
   end
 
   def url
-    "http://apache.mirrors.tds.net/apr/apr-iconv-#{version}.tar.gz"
+    "https://apache.osuosl.org/apr/apr-iconv-#{version}.tar.gz"
   end
 end
 
@@ -34,7 +34,7 @@ class AprUtilRecipe < BaseRecipe
   end
 
   def url
-    "http://apache.mirrors.tds.net/apr/apr-util-#{version}.tar.gz"
+    "https://apache.osuosl.org/apr/apr-util-#{version}.tar.gz"
   end
 end
 
@@ -113,9 +113,11 @@ class HTTPdMeal
     @name    = name
     @version = version
     @options = options
+    update_git
   end
 
   def cook
+    run('mkdir /app')
     run('apt update') or raise 'Failed to apt update'
     run('apt-get install -y libldap2-dev') or raise 'Failed to install libldap2-dev'
 
@@ -170,6 +172,25 @@ class HTTPdMeal
     end
   end
 
+  def latest_github_version(repo)
+    puts "Getting latest tag from #{repo}..."
+    repo = "https://github.com/#{repo}"
+    return `git -c 'versionsort.suffix=-' ls-remote --exit-code --refs --sort='version:refname' --tags #{repo} '*.*.*' | tail -1 | cut -d/ --fields=3`.strip
+  end
+
+  def update_git
+    # This is done because we rely on git's ls-remote that was introduced in 2.18.
+    # cflinuxfs3/bionic comes with an older version of git.
+    puts "Updating git to latest version..."
+    system <<-EOF
+      #!/bin/sh
+      apt-get -y update
+      apt-get -y install software-properties-common
+      add-apt-repository -y ppa:git-core/ppa
+      apt-get -y update && apt-get -y install git
+    EOF
+  end
+
   def files_hashs
     hashes = httpd_recipe.send(:files_hashs) +
       apr_recipe.send(:files_hashs)       +
@@ -196,17 +217,18 @@ class HTTPdMeal
   end
 
   def apr_util_recipe
-    @apr_util_recipe ||= AprUtilRecipe.new('apr-util', '1.6.1', apr_path: apr_recipe.path,
-                                                                apr_iconv_path: apr_iconv_recipe.path,
-                                                                md5: 'bd502b9a8670a8012c4d90c31a84955f')
+    apr_util_version = latest_github_version("apache/apr-util")
+    @apr_util_recipe ||= AprUtilRecipe.new('apr-util', apr_util_version, apr_path: apr_recipe.path,
+                                                                apr_iconv_path: apr_iconv_recipe.path)
   end
 
   def apr_iconv_recipe
-    @apr_iconv_recipe ||= AprIconvRecipe.new('apr-iconv', '1.2.2', apr_path: apr_recipe.path,
-                                                                   md5: '60ae6f95ee4fdd413cf7472fd9c776e3')
+    apr_iconv_version = latest_github_version("apache/apr-iconv")
+    @apr_iconv_recipe ||= AprIconvRecipe.new('apr-iconv', apr_iconv_version, apr_path: apr_recipe.path)
   end
 
   def apr_recipe
-    @apr_recipe ||= AprRecipe.new('apr', '1.7.0', md5: '757239852b082b844e268a86f2806fd2')
+    apr_version = latest_github_version("apache/apr")
+    @apr_recipe ||= AprRecipe.new('apr', apr_version)
   end
 end
